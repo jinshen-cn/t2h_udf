@@ -45,7 +45,7 @@
             <artifactId>fnc</artifactId>
             <version>14.00.00.00</version>
             <scope>system</scope>
-            <systemPath>/home/jason/T2H_UDF/lib/javFnc.jar</systemPath>
+            <systemPath>${basedir}/lib/javFnc.jar</systemPath>
         </dependency>
     </dependencies>
 
