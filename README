@@ -1,1 +1,89 @@
-Extract datas from Teradata to Hadoop
+/* Demonstration steps:
+ * 1. Install and configure Hadoop DFS.
+ *      1.1 This demo has been tested with Hadoop 1.2 and Teradata Express 14.0
+ *      1.2 Get Hadoop from http://hadoop.apache.org/core/releases.html
+ *      1.3 Follow the instructions and tutorials on Hadoop's website (http://hadoop.apache.org/common/docs/r0.20.0/quickstart.html)
+ *
+ * 2. Load data into HDFS. An example command copying a local file to Hadoop is:  $hadoop-0.20.0/bin/hadoop dfs -put mylocal.txt mydfstbl.txt
+ *     If you upload the file as root, then the file's DFS path is likely '/user/root/mydfstbl.txt'
+ * 3. Hadoop 0.20.0 or higher version requirs Java 1.6. The JVM included with TD 13.0 is 1.5. If Hadoop 0.20.0 or higher version is used
+ *    , IBM JVM 1.6 should be first download and installed on every Teradata node.  In our testing, the following commands were used to intall
+ *      IBM JVM 1.6 and make Teradata DBMS use the new installed IBM JVM 1.6
+ *      a)  We download IBM ibm-java-x86_64-sdk.rpm on every node in the Teradata system.
+        b)  Install JVM 1.6 on every Teradata node
+        c)  Use the following command on any Teradata node 
+            cufconfig -f  1.txt
+            a)  1.txt specifies the path under which the desired JVM should be used by Teradata DBMS.
+            b)  1.txt contains a single line shown below
+                    JREPath: ${Your_Installed_Jre_PATH}
+            c)use cufconfig -o  to display the configurations and check if "JREPath: ${Your_Installed_Jre_PATH}" is in the output.
+ 
+ * 4. Prepare the .jar file.
+ *       $/opt/ibm/java-x86_64-60/bin/javac HDFS_UDF.java     (make sure Teradata javFnc.jar and hadoop-0.20.0-core.jar
+ *                  can be found by javac or explicilty include the two jar files in the javac command)
+         $/opt/ibm/java-x86_64-60/bin/jar -cf hdfsudf.jar HDFS_UDF.class GenCtx.class
+ *
+ * 5. Use the follwing bteq script to set up a test database and install the jar files in Teradata DBMS (change the directories if your Hadoop installation and Java UDF directories are different).
+ */
+ 
+/* bteq scripts */
+ 
+/*
+ 
+ .logon  NodeId/dbc
+ 
+ CREATE USER testdb AS PERM = 600000000000 PASSWORD = testdb;
+ GRANT CREATE   PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT DROP PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT EXECUTE  PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT CREATE    PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT CREATE   EXTERNAL PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT ALTER     EXTERNAL PROCEDURE ON testdb TO testdb WITH GRANT OPTION;
+ GRANT ALTER     PROCEDURE on testdb TO testdb;
+ grant all on testdb to testdb with grant option;
+ grant all on SQLJ to testdb with grant option;
+ grant all on testdb to dbc with grant option;
+  
+  
+ *
+ .logoff
+ 
+  
+ *
+ //For debugging, the following diagnostics should be set. The output files are under /tmp.
+ .logon NodeId/testdb;
+database testdb;
+ diagnostic JAVALANGUAGE on for session;
+ diagnostic JAVA32 on for session;
+ diagnostic javalogging on for session;
+ diagnostic nocache on for session;
+  
+call sqlj.install_jar('CJ!/home2/tableudf/hdfsudf.jar', 'hdfsudf', 0);
+Call sqlj.replace_jar('CJ!/home2/tableudf/hdfsudf.jar', 'hdfsudf');
+call sqlj.install_jar('cj!/hadoop-0.20.0/hadoop-0.20.0-core.jar','newhadoop',0);
+call sqlj.install_jar('cj!/hadoop-0.20.0/lib/commons-logging-1.0.4.jar','hadooploggingjar',0);
+   
+call SQLJ.ALTER_JAVA_PATH('hdfsudf','(*,newhadoop) (*,hadooploggingjar)');
+ 
+REPLACE FUNCTION hdfs_udf( filename VARCHAR(250), hdfsname VARCHAR(250) )
+RETURNS TABLE (c1 integer, c2 integer)
+LANGUAGE JAVA
+NO SQL
+PARAMETER STYLE JAVA
+EXTERNAL NAME 'hdfsudf:HDFS_UDF.GetDFSFileData';
+  
+ 
+CREATE  TABLE testdb.mytab,NO FALLBACK ,
+     NO BEFORE JOURNAL,
+     NO AFTER JOURNAL,
+     CHECKSUM = DEFAULT
+     (
+      c1 integer,
+      c2 INTEGER)
+NO PRIMARY INDEX ;
+ 
+  
+ 
+insert into mytab SELECT * FROM TABLE (hdfs_udf('/user/root/mydfstbl.txt','hdfs://HDFS_server.mycompany.com:19000')) AS t1;
+ */
+ 
